@@ -344,48 +344,15 @@
     }
 
     function exportCanvas() {
-        // 一键导出:白底合成 → 按内容裁剪四周透明边 → 下载 PNG
+        // 一键导出:白底合成 → 整块画布全尺寸下载(与屏幕分辨率一致,不裁剪)
         const w = canvas.width, h = canvas.height;
-        const dpr = window.devicePixelRatio || 1;
-        const imgData = ctx.getImageData(0, 0, w, h);
-        const px = imgData.data;
-
-        // 扫描 alpha 通道,求出有内容区域的包围盒
-        let minX = w, minY = h, maxX = -1, maxY = -1;
-        for (let i = 3; i < px.length; i += 4) {
-            if (px[i] !== 0) {
-                const x = (i / 4) % w;
-                const y = Math.floor(i / 4 / w);
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
-            }
-        }
-
-        // 空白画布:导出整幅纯白图
-        if (maxX < 0) {
-            minX = 0;
-            minY = 0;
-            maxX = w - 1;
-            maxY = h - 1;
-        }
-
-        // 内容周围留一小圈空白,避免笔画贴边
-        const pad = Math.round(16 * dpr);
-        const x0 = Math.max(minX - pad, 0);
-        const y0 = Math.max(minY - pad, 0);
-        const x1 = Math.min(maxX + pad + 1, w);
-        const y1 = Math.min(maxY + pad + 1, h);
-        const dw = x1 - x0, dh = y1 - y0;
-
         const out = document.createElement("canvas");
-        out.width = dw;
-        out.height = dh;
+        out.width = w;
+        out.height = h;
         const octx = out.getContext("2d");
         octx.fillStyle = "#fff";
-        octx.fillRect(0, 0, dw, dh);
-        octx.drawImage(canvas, x0, y0, dw, dh, 0, 0, dw, dh);
+        octx.fillRect(0, 0, w, h);
+        octx.drawImage(canvas, 0, 0);
 
         const link = document.createElement("a");
         link.download = `DouBoard(${exportStamp()}).png`;
