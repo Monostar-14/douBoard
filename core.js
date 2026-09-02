@@ -299,14 +299,125 @@
     }
 
     confirmOk.onclick = function () {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
         hideConfirm();
         toolbarEraserMenu.classList.remove("active");
+        burstDissolve();
     };
     confirmCancel.onclick = hideConfirm;
     confirmMask.onpointerup = function (e) {
         if (e.target === confirmMask) hideConfirm();
     };
+
+    // ---- 清空粒子消散特效(确认后笔迹绽开成碎屑飘散,Telegram 删消息风格) ----
+    // fx 层浮在笔迹之上、工具栏之下,不拦截指针;主画布立即清空,碎屑在此层播放
+    let fxCanvas = document.createElement("canvas");
+    fxCanvas.id = "fxCanvas";
+    fxCanvas.style.cssText = "position:fixed;top:0;left:0;z-index:9;pointer-events:none;touch-action:none;";
+    document.body.insertBefore(fxCanvas, canvas.nextSibling);
+    let fxCtx = fxCanvas.getContext("2d");
+    let fxBurst = null; // 运行中的爆散动画
+
+    function burstDissolve() {
+        const w = canvas.width, h = canvas.height;
+        let img = null;
+        try { img = ctx.getImageData(0, 0, w, h); } catch (e) { }
+        ctx.clearRect(0, 0, w, h); // 主画布立即清空,笔迹碎屑交给 fx 层
+        if (fxBurst) { cancelAnimationFrame(fxBurst.raf); fxBurst = null; }
+        fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+        if (!img) return;
+        const dpr = window.devicePixelRatio || 1;
+        const data = img.data;
+
+        // 统计笔迹像素并求形心(爆散以形心为原点向四周绽开)
+        let count = 0, sx = 0, sy = 0;
+        for (let y = 0; y < h; y++) {
+            const row = y * w;
+            for (let x = 0; x < w; x++) {
+                if (data[(row + x) * 4 + 3] > 96) { count++; sx += x; sy += y; }
+            }
+        }
+        if (!count) return;
+        const cxc = sx / count, cyc = sy / count;
+
+        // 像素过多时按步长抽稀,碎屑数封顶 ~5200,满屏也能流畅
+        const step = Math.max(1, Math.ceil(count / 5200));
+        const sizes = [1.05, 1.4, 1.75, 2.3]; // 设备像素,颗粒有大有小
+        const parts = [];
+        let n = 0;
+        for (let y = 0; y < h; y++) {
+            const row = y * w;
+            for (let x = 0; x < w; x++) {
+                const off = (row + x) * 4;
+                const a = data[off + 3];
+                if (a <= 96) continue;
+                if (++n % step) continue;
+                let r = data[off], g = data[off + 1], b = data[off + 2];
+                if (a < 255) { // 去预乘,抗锯齿边缘取真实笔色
+                    const k = 255 / a;
+                    r = Math.min(255, Math.round(r * k));
+                    g = Math.min(255, Math.round(g * k));
+                    b = Math.min(255, Math.round(b * k));
+                }
+                const dx = x - cxc, dy = y - cyc;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                const spread = 0.45 + 0.55 * Math.min(1, dist / (300 * dpr)); // 离形心越远飞得越快
+                const speed = (120 + 330 * Math.random()) * spread * dpr; // 设备 px/s
+                const ang = Math.atan2(dy, dx) + (Math.random() - 0.5) * 1.15; // 径向 + 切向抖动
+                parts.push({
+                    x: x, y: y,
+                    vx: Math.cos(ang) * speed,
+                    vy: Math.sin(ang) * speed,
+                    s: Math.max(1, Math.round(sizes[(Math.random() * sizes.length) | 0] * dpr)),
+                    color: "rgb(" + r + "," + g + "," + b + ")",
+                    delay: Math.random() * 110, // 错峰起爆,更像碎屑逐粒脱离
+                    a0: 0.78 + Math.random() * 0.22
+                });
+            }
+        }
+        if (!parts.length) return;
+        fxCanvas.width = w;
+        fxCanvas.height = h;
+        fxCanvas.style.width = canvas.style.width;
+        fxCanvas.style.height = canvas.style.height;
+
+        const dur = 1050;             // 单粒可见时长 ms
+        const damp = Math.exp(-4.2 / 60); // 速度指数衰减(60fps 基准,按实际 dt 换算)
+        const grav = 26 * dpr;        // 轻微下坠,自然飘散
+        fxBurst = { t0: performance.now(), last: 0, parts, raf: 0 };
+        const tick = function (ts) {
+            const b = fxBurst;
+            if (!b) return;
+            const dt = Math.min(0.05, b.last ? (ts - b.last) / 1000 : 1 / 60);
+            b.last = ts;
+            const age = ts - b.t0;
+            const dampDt = Math.pow(damp, dt * 60);
+            fxCtx.clearRect(0, 0, w, h);
+            let alive = false;
+            for (let i = 0; i < b.parts.length; i++) {
+                const p = b.parts[i];
+                const t = age - p.delay;
+                if (t <= 0) { alive = true; continue; }
+                if (t > dur) continue;
+                alive = true;
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.vy += grav * dt;
+                p.vx *= dampDt;
+                p.vy *= dampDt;
+                const k = t / dur;
+                fxCtx.globalAlpha = p.a0 * (1 - Math.pow(k, 1.55)); // 先慢后快的淡出
+                fxCtx.fillStyle = p.color;
+                fxCtx.fillRect(p.x - p.s / 2, p.y - p.s / 2, p.s, p.s);
+            }
+            if (alive) {
+                b.raf = requestAnimationFrame(tick);
+            } else {
+                fxCtx.clearRect(0, 0, w, h);
+                fxBurst = null;
+            }
+        };
+        fxBurst.raf = requestAnimationFrame(tick);
+    }
 
     document.querySelector(".clearAll").onpointerup = function () {
         showConfirm();
