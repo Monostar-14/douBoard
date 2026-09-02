@@ -247,6 +247,11 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         toolbarEraserMenu.classList.remove("active");
     }
+    document.querySelector(".toolbar-export").onpointerup = function () {
+        toolbarPenMenu.classList.remove("active");
+        toolbarEraserMenu.classList.remove("active");
+        exportCanvas();
+    }
     toolbarPen.onpointerup = function () {
         toolbarEraserMenu.classList.remove("active");
         if (toolbarPen.classList.contains("active")) {
@@ -293,10 +298,10 @@
 
 
     window.onkeyup = function (e) {
-        if (e.ctrlKey == true && e.keyCode == 83) { //Ctrl+S 保存
+        if (e.ctrlKey == true && e.keyCode == 83) { //Ctrl+S 导出图片
             e.preventDefault();
             e.returnvalue = false;
-            saveCanvas();
+            exportCanvas();
         }
         if (e.keyCode == 69) { //E 橡皮擦
             e.returnvalue = false;
@@ -338,26 +343,65 @@
         }
     }
 
-    function saveCanvas() {
-        var link = document.createElement("a");
-        var imgData = canvas.toDataURL();
-        var blob = dataURLtoBlob(imgData);
-        var objURL = URL.createObjectURL(blob);
-        link.download = `DouBoard(${new Date().toLocaleString().replace(/\//g, "-")}).png`;
-        link.href = objURL;
-        link.click();
-        link.remove();
+    function exportCanvas() {
+        // 一键导出:白底合成 → 按内容裁剪四周透明边 → 下载 PNG
+        const w = canvas.width, h = canvas.height;
+        const dpr = window.devicePixelRatio || 1;
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const px = imgData.data;
 
-        setTimeout(function () { URL.revokeObjectURL(objURL); }, 5000);
-
-        function dataURLtoBlob(dataurl) {
-            var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
-                bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
-            while (n--) {
-                u8arr[n] = bstr.charCodeAt(n);
+        // 扫描 alpha 通道,求出有内容区域的包围盒
+        let minX = w, minY = h, maxX = -1, maxY = -1;
+        for (let i = 3; i < px.length; i += 4) {
+            if (px[i] !== 0) {
+                const x = (i / 4) % w;
+                const y = Math.floor(i / 4 / w);
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
             }
-            return new Blob([u8arr], { type: mime });
         }
+
+        // 空白画布:导出整幅纯白图
+        if (maxX < 0) {
+            minX = 0;
+            minY = 0;
+            maxX = w - 1;
+            maxY = h - 1;
+        }
+
+        // 内容周围留一小圈空白,避免笔画贴边
+        const pad = Math.round(16 * dpr);
+        const x0 = Math.max(minX - pad, 0);
+        const y0 = Math.max(minY - pad, 0);
+        const x1 = Math.min(maxX + pad + 1, w);
+        const y1 = Math.min(maxY + pad + 1, h);
+        const dw = x1 - x0, dh = y1 - y0;
+
+        const out = document.createElement("canvas");
+        out.width = dw;
+        out.height = dh;
+        const octx = out.getContext("2d");
+        octx.fillStyle = "#fff";
+        octx.fillRect(0, 0, dw, dh);
+        octx.drawImage(canvas, x0, y0, dw, dh, 0, 0, dw, dh);
+
+        const link = document.createElement("a");
+        link.download = `DouBoard(${exportStamp()}).png`;
+        link.onclick = function () { link.remove(); };
+        out.toBlob(function (blob) {
+            const objURL = URL.createObjectURL(blob);
+            link.href = objURL;
+            link.click();
+            setTimeout(function () { URL.revokeObjectURL(objURL); }, 5000);
+        }, "image/png");
+    }
+
+    function exportStamp() {
+        const d = new Date();
+        const p = function (n) { return (n < 10 ? "0" : "") + n; };
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
     }
 
     function setToolbarStatus(status) {

@@ -4,11 +4,15 @@
 
 ## 快捷键
 
- - Ctrl+S 保存
+ - Ctrl+S 导出图片
  - Ctrl+Z 撤回
  - E 橡皮擦
  - B 画笔
 
-## 在线demo
+## 功能
 
-[https://ink.daidr.me](https://ink.daidr.me "demo")
+ - 工具栏「下载」按钮:一键导出为 PNG —— 白底合成、自动裁剪四周空白,保存后可直接分享/插入文档
+
+## 在线 demo
+
+[https://monostar-14.github.io/douBoard](https://monostar-14.github.io/douBoard)
