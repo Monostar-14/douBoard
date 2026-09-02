@@ -38,13 +38,19 @@ canvas {
     height: 50px;
     width: 200px;
     position: fixed;
-    bottom: 0px;
+    bottom: 12px;
     left: 50%;
     z-index: 12;
     transform: translateX(-50%);
-    box-shadow: 0 0 10px 0px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
     user-select: none;
-    background: #fff;
+    background: rgba(255, 255, 255, 0.86);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    backdrop-filter: blur(12px) saturate(1.2);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 18px;
+    overflow: hidden;
+    transition: box-shadow 0.25s ease;
 }
 
 [class^="toolbar-"] {
@@ -59,11 +65,15 @@ canvas {
 }
 
 [class^="toolbar-"]:hover {
-    background: #f1f1f2;
+    background: rgba(0, 0, 0, 0.05);
+}
+
+[class^="toolbar-"]:active {
+    background: rgba(0, 0, 0, 0.09);
 }
 
 [class^="toolbar-"].active {
-    background: #f1f1f2;
+    background: rgba(0, 0, 0, 0.06);
 }
 
 [class^="toolbar-"] svg {
@@ -74,13 +84,19 @@ canvas {
     transform: translateY(3px);
 }
 
+/* 按压反馈 */
+[class^="toolbar-"]:active svg {
+    transform: translateY(15px) scale(0.85);
+    transition: transform 0.08s ease-out;
+}
+
 .toolbar-pen {
     position: relative;
 }
 
 .toolbar-pen span {
     opacity: 0;
-    transition: opacity 0.1s ease-out;
+    transition: opacity 0.1s ease-out, width 0.15s ease-out, height 0.15s ease-out;
 }
 
 .toolbar-pen.active span {
@@ -126,10 +142,9 @@ canvas {
 }
 
 .toolbarmenu {
-    height: 50px;
-    width: 100px;
+    height: auto;
     position: fixed;
-    bottom: 50px;
+    bottom: 66px;
     left: 50%;
     transform: translateX(-50%);
     user-select: none;
@@ -140,8 +155,10 @@ canvas {
     height: auto;
     width: 160px;
     background: #fff;
-    box-shadow: 0 0 10px 0px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
     pointer-events: none;
+    border-radius: 16px;
+    overflow: hidden;
 }
 
 [class^="toolbarmenu-"].active {
@@ -172,6 +189,7 @@ canvas {
 .width-viewer span {
     border-radius: 100%;
     display: block;
+    transition: width 0.15s ease-out, height 0.15s ease-out;
 }
 
 .switcher-container {
@@ -192,7 +210,7 @@ canvas {
     border-radius: 100%;
     border: 2px solid rgba(179, 179, 179, 0.8);
     box-shadow: 0 0 0px 3px transparent;
-    transition: box-shadow 0.1s ease-out;
+    transition: box-shadow 0.1s ease-out, transform 0.15s ease-out;
     cursor: pointer;
     display: flex;
     justify-content: center;
@@ -201,6 +219,11 @@ canvas {
 
 .switcher-container [class^="width-switcher-"]:hover {
     box-shadow: 0 0 0px 3px rgba(221, 221, 221, 0.8);
+    transform: scale(1.14);
+}
+
+.switcher-container [class^="width-switcher-"]:active {
+    transform: scale(0.94);
 }
 
 .switcher-container [class^="width-switcher-"].active {
@@ -244,7 +267,7 @@ canvas {
     border-radius: 100%;
     border: 2px solid rgba(179, 179, 179, 0.8);
     box-shadow: 0 0 0px 3px transparent;
-    transition: box-shadow 0.1s ease-out;
+    transition: box-shadow 0.15s ease-out, transform 0.15s ease-out;
     cursor: pointer;
     flex-shrink: 0;
     background-color: white;
@@ -253,6 +276,11 @@ canvas {
 
 .switcher-container .color-switcher:hover {
     box-shadow: 0 0 0px 3px rgba(221, 221, 221, 0.8);
+    transform: scale(1.15);
+}
+
+.switcher-container .color-switcher:active {
+    transform: scale(0.9);
 }
 
 .switcher-container .color-switcher.active {
@@ -298,7 +326,9 @@ canvas {
     display: flex;
     align-items: center;
     background: #fff;
-    transition: background-color 0.1s ease-out;
+    color: #e31328;
+    font-size: 14px;
+    transition: background-color 0.15s ease-out;
 }
 
 /* 粗细/橡皮大小 滑杆行 */
@@ -364,7 +394,110 @@ canvas {
 }
 
 .toolbarmenu-eraser p:hover {
+    background: rgba(227, 19, 40, 0.08);
+}
+
+/* 清空确认弹窗 */
+.confirm-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 15, 20, 0.4);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.22s ease, visibility 0.22s ease;
+}
+
+.confirm-mask.show {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.confirm-mask.show .confirm-dialog {
+    animation: dialogPop 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+
+.confirm-dialog {
+    width: 300px;
+    max-width: calc(100vw - 48px);
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+    padding: 24px 22px 18px;
+    box-sizing: border-box;
+}
+
+.confirm-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: #1f1f1f;
+    margin: 0 0 8px;
+}
+
+.confirm-desc {
+    font-size: 13px;
+    color: #8a8a8e;
+    line-height: 1.65;
+    margin: 0 0 20px;
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.confirm-btn {
+    border: none;
+    outline: none;
+    cursor: pointer;
+    height: 36px;
+    padding: 0 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    transition: transform 0.12s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.confirm-btn:active {
+    transform: scale(0.94);
+}
+
+.confirm-btn.cancel {
     background: #f1f1f2;
+    color: #444;
+}
+
+.confirm-btn.cancel:hover {
+    background: #e6e6e8;
+}
+
+.confirm-btn.ok {
+    background: #e31328;
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(227, 19, 40, 0.32);
+}
+
+.confirm-btn.ok:hover {
+    background: #c90e21;
+    box-shadow: 0 6px 18px rgba(227, 19, 40, 0.4);
+}
+
+@keyframes dialogPop {
+    0% {
+        opacity: 0;
+        transform: scale(0.86) translateY(14px);
+    }
+    100% {
+        opacity: 1;
+        transform: none;
+    }
 }
 
 .toolbarmenu-eraser p img {
@@ -376,19 +509,23 @@ canvas {
 
 @keyframes fadelogIn {
     0% {
-        transform: translate3d(0, 80px, 0) scale(0.7);
+        opacity: 0;
+        transform: translate3d(0, 26px, 0) scale(0.94);
     }
     100% {
+        opacity: 1;
         transform: none;
     }
 }
 
 @keyframes fadelogOut {
     0% {
+        opacity: 1;
         transform: none;
     }
     100% {
-        transform: translate3d(0, 80px, 0) scale(0.7);
+        opacity: 0;
+        transform: translate3d(0, 26px, 0) scale(0.94);
     }
 }
 

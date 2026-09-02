@@ -286,9 +286,30 @@
 
     toolbarEraser.innerHTML = icons.eraser();
 
-    document.querySelector(".clearAll").onpointerup = function () {
+    let confirmMask = document.querySelector(".confirm-mask");
+    let confirmOk = document.querySelector("#confirmOk");
+    let confirmCancel = document.querySelector("#confirmCancel");
+
+    function showConfirm() {
+        confirmMask.classList.add("show");
+    }
+
+    function hideConfirm() {
+        confirmMask.classList.remove("show");
+    }
+
+    confirmOk.onclick = function () {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hideConfirm();
         toolbarEraserMenu.classList.remove("active");
+    };
+    confirmCancel.onclick = hideConfirm;
+    confirmMask.onpointerup = function (e) {
+        if (e.target === confirmMask) hideConfirm();
+    };
+
+    document.querySelector(".clearAll").onpointerup = function () {
+        showConfirm();
     }
     document.querySelector(".toolbar-export").onpointerup = function () {
         toolbarPenMenu.classList.remove("active");
@@ -371,6 +392,9 @@
             if (content) {
                 ctx.putImageData(content, 0, 0);
             }
+        }
+        if (e.keyCode == 27) { //Esc 关闭确认弹窗
+            hideConfirm();
         }
     }
 
