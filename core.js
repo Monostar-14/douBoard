@@ -30,6 +30,11 @@
     let toolbarPenOnly = document.querySelector(".toolbar-penonly");
     let toolbarPenMenu = document.querySelector(".toolbarmenu-pen");
     let toolbarEraserMenu = document.querySelector(".toolbarmenu-eraser");
+    let widthViewer = document.querySelector(".width-viewer");
+    let penWidthSlider = document.querySelector(".pen-width-range");
+    let penWidthValue = document.querySelector(".toolbarmenu-pen .slider-value");
+    let eraserSizeSlider = document.querySelector(".eraser-size-range");
+    let eraserSizeValue = document.querySelector(".toolbarmenu-eraser .slider-value");
 
     let eraser = document.querySelector(".eraser");
     let isPenOnly = false;
@@ -61,6 +66,8 @@
     canDraw = false;
     let baseLineList = [6, 10, 15, 25];
     let baseLineMode = 0;
+    let baseLineWidth = 6; // 笔标称宽度(满压时),预设/滑杆共用
+    let eraserWidth = 60; // 橡皮直径,默认 60
     let lineColorList = ["#000", "#5B2D90", "#0069BF", "#F6630C", "#AB228B", "#B7B7B7", "#E3E3E3", "#E71224", "#D20078", "#02A556", "#C09E66", "#FFC114"]; //线条颜色列表
     let lineColorMode = 0;
     let history = [];
@@ -84,23 +91,57 @@
         document.querySelector(`.switcher-container[type="color"]`).appendChild(child)
     }
 
+    // 自选颜色:第 13 个色块,点击弹出系统取色器
+    lineColorList[12] = "#000";
+    let customColorInput = document.createElement("input");
+    customColorInput.type = "color";
+    customColorInput.value = lineColorList[12];
+    customColorInput.classList.add("color-switcher", "custom");
+    customColorInput.onpointerup = function () { setPenColor(12); };
+    customColorInput.oninput = function () {
+        lineColorList[12] = this.value;
+        setPenColor(12);
+    };
+    document.querySelector(`.switcher-container[type="color"]`).appendChild(customColorInput);
+
+    // 渲染笔图标右下角大小点 + 菜单宽度预览点
+    function renderWidthPreview() {
+        const color = lineColorList[lineColorMode];
+        const d = Math.min(34, Math.max(3, baseLineWidth));
+        widthViewer.innerHTML = `<span style="width:${d}px;height:${d}px;background:${color}"></span>`;
+        const dot = Math.min(22, Math.max(3, baseLineWidth));
+        toolbarPen.innerHTML = icons.pen(color) + `<span style="width:${dot}px;height:${dot}px;background:${color}"></span>`;
+    }
+
     function setPenWidth(mode) {
         baseLineMode = mode;
-        let viewerContainer = document.querySelector(".width-viewer");
-        viewerContainer.innerHTML = icons[`width-${mode + 1}`](lineColorList[lineColorMode]);
-        toolbarPen.innerHTML = icons.pen(lineColorList[lineColorMode]) + `<span class="toolbar-pen-viewer-${baseLineMode + 1}" style="background:${lineColorList[lineColorMode]}"></span>`;
+        baseLineWidth = baseLineList[mode];
+        penWidthSlider.value = baseLineWidth;
+        penWidthValue.textContent = baseLineWidth;
         document.querySelector(`.switcher-container[type="width"] .active`).classList.remove("active");
         document.querySelector(`.width-switcher-${mode + 1}`).classList.add("active");
+        renderWidthPreview();
     }
+
+    // 粗细滑杆:连续调节,取消档位高亮
+    penWidthSlider.oninput = function () {
+        baseLineWidth = +this.value;
+        penWidthValue.textContent = this.value;
+        const cur = document.querySelector(`.switcher-container[type="width"] .active`);
+        if (cur) cur.classList.remove("active");
+        renderWidthPreview();
+    };
 
     setPenWidth(0);
 
     function setPenColor(mode) {
         lineColorMode = mode;
-        toolbarPen.innerHTML = icons.pen(lineColorList[mode]) + `<span class="toolbar-pen-viewer-${baseLineMode + 1}" style="background:${lineColorList[mode]}"></span>`;
-        setPenWidth(baseLineMode);
-        document.querySelector(`.color-switcher.active`).classList.remove("active");
-        document.querySelectorAll(`.color-switcher`)[mode].classList.add("active");
+        renderWidthPreview();
+        let all = document.querySelectorAll(`.color-switcher`);
+        for (let i = 0; i < all.length; i++) {
+            all[i].classList.remove("active");
+        }
+        all[mode].classList.add("active");
     }
 
     setPenColor(0);
@@ -134,7 +175,7 @@
                 const lastTwoPoints = points.slice(-2);
                 const controlPoint = lastTwoPoints[0];
                 const endPoint = lastTwoPoints[1];
-                usePen(beginPoint, controlPoint, endPoint, (priviousPressure + pressure) / 2 * baseLineList[baseLineMode]);
+                usePen(beginPoint, controlPoint, endPoint, (priviousPressure + pressure) / 2 * baseLineWidth);
             } else {
                 priviousPressure = pressure;
             }
@@ -155,7 +196,7 @@
                     x: (lastTwoPoints[0].x + lastTwoPoints[1].x) / 2,
                     y: (lastTwoPoints[0].y + lastTwoPoints[1].y) / 2,
                 }
-                usePen(beginPoint, controlPoint, endPoint, pressure * baseLineList[baseLineMode]);
+                usePen(beginPoint, controlPoint, endPoint, pressure * baseLineWidth);
                 beginPoint = endPoint;
             }
         }
@@ -169,8 +210,10 @@
             ctx.strokeStyle = "rgba(0,0,0,1)";
             ctx.globalCompositeOperation = "destination-out";
             const { x, y } = getPos(e);
-            eraser.style.top = `${y - 30}px`;
-            eraser.style.left = `${x - 30}px`;
+            eraser.style.width = `${eraserWidth}px`;
+            eraser.style.height = `${eraserWidth}px`;
+            eraser.style.top = `${y - eraserWidth / 2}px`;
+            eraser.style.left = `${x - eraserWidth / 2}px`;
             eraser.style.display = "block";
             points.push({ x, y });
             beginPoint = { x, y };
@@ -186,7 +229,7 @@
                 const lastTwoPoints = points.slice(-2);
                 const controlPoint = lastTwoPoints[0];
                 const endPoint = lastTwoPoints[1];
-                useEraser(beginPoint, controlPoint, endPoint, 60);
+                useEraser(beginPoint, controlPoint, endPoint, eraserWidth);
             }
             beginPoint = null;
             canDraw = false;
@@ -205,9 +248,9 @@
                     x: (lastTwoPoints[0].x + lastTwoPoints[1].x) / 2,
                     y: (lastTwoPoints[0].y + lastTwoPoints[1].y) / 2,
                 }
-                eraser.style.top = `${y - 30}px`;
-                eraser.style.left = `${x - 30}px`;
-                useEraser(beginPoint, controlPoint, endPoint, 60);
+                eraser.style.top = `${y - eraserWidth / 2}px`;
+                eraser.style.left = `${x - eraserWidth / 2}px`;
+                useEraser(beginPoint, controlPoint, endPoint, eraserWidth);
                 beginPoint = endPoint;
             }
         }
@@ -251,6 +294,16 @@
         toolbarPenMenu.classList.remove("active");
         toolbarEraserMenu.classList.remove("active");
         exportCanvas();
+    }
+
+    // 橡皮大小滑杆
+    eraserSizeSlider.oninput = function () {
+        eraserWidth = +this.value;
+        eraserSizeValue.textContent = this.value;
+        if (eraser.style.display !== "none") {
+            eraser.style.width = `${eraserWidth}px`;
+            eraser.style.height = `${eraserWidth}px`;
+        }
     }
     toolbarPen.onpointerup = function () {
         toolbarEraserMenu.classList.remove("active");
