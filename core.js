@@ -22,11 +22,18 @@
     let canvas = document.querySelector("#mainCanvas");
     let ctx = canvas.getContext("2d");
 
-    let offCanvas = document.createElement("canvas");
-    let offCtx = offCanvas.getContext("2d");
+    // ---- 画布即世界:笔迹全部存在离屏 worldCanvas,主画布只是「视口」----
+    // 视口 = 屏幕左上角对应的世界坐标(viewX/viewY,CSS px)。抓手工具拖动视口;
+    // 笔迹画到屏幕之外时 worldCanvas 自动向右/下扩展,导出会包含屏外内容。
+    let worldCanvas = document.createElement("canvas");
+    let wctx = worldCanvas.getContext("2d");
+    let viewX = 0, viewY = 0;   // 视口左上角(世界坐标, CSS px)
+    let panning = false;        // 抓手拖动进行中
+    let panLast = null;         // 上一帧指针位置
 
     let toolbarPen = document.querySelector(".toolbar-pen");
     let toolbarEraser = document.querySelector(".toolbar-eraser");
+    let toolbarPan = document.querySelector(".toolbar-pan");
     let toolbarPenOnly = document.querySelector(".toolbar-penonly");
     let toolbarPenMenu = document.querySelector(".toolbarmenu-pen");
     let toolbarEraserMenu = document.querySelector(".toolbarmenu-eraser");
@@ -40,28 +47,64 @@
     let isPenOnly = false;
     for (i in document.images) document.images[i].ondragstart = function () { return false; };
 
-    window.onresize = function () {
-        offCanvas.width = canvas.width;
-        offCanvas.height = canvas.height;
-        offCtx.drawImage(canvas, 0, 0);
-
-        canvas.width = document.documentElement.clientWidth;
-        canvas.height = document.documentElement.clientHeight;
-
-        let width = canvas.width, height = canvas.height;
-        if (window.devicePixelRatio) {
-            canvas.style.width = width + "px";
-            canvas.style.height = height + "px";
-            canvas.height = height * window.devicePixelRatio;
-            canvas.width = width * window.devicePixelRatio;
-            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-        }
-        ctx.drawImage(offCanvas, 0, 0);
-        ctx.lineJoin = "round";
-        ctx.lineCap = "round";
+    // 世界画布扩容(只增不减):旧内容 1:1 原样搬入,保持世界坐标不变
+    function growWorld(cssW, cssH) {
+        const dpr = window.devicePixelRatio || 1;
+        const nw = Math.max(Math.round(cssW * dpr), worldCanvas.width);
+        const nh = Math.max(Math.round(cssH * dpr), worldCanvas.height);
+        if (nw === worldCanvas.width && nh === worldCanvas.height) return;
+        // 新 context 会重置一切绘图状态,先记下正在进行的笔迹状态(换 canvas 后原样恢复)
+        const style = wctx.strokeStyle;
+        const op = wctx.globalCompositeOperation;
+        const width = wctx.lineWidth;
+        const fill = wctx.fillStyle;
+        const old = worldCanvas;
+        worldCanvas = document.createElement("canvas");
+        worldCanvas.width = nw;
+        worldCanvas.height = nh;
+        wctx = worldCanvas.getContext("2d");
+        wctx.setTransform(1, 0, 0, 1, 0, 0);
+        wctx.drawImage(old, 0, 0);
+        wctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        wctx.strokeStyle = style;
+        wctx.globalCompositeOperation = op;
+        wctx.lineWidth = width;
+        wctx.fillStyle = fill;
+        wctx.lineJoin = "round";
+        wctx.lineCap = "round";
     }
 
-    window.onresize();
+    // 把视口区域从世界画布刷到主画布(主画布 = 纯 framebuffer,恒为 identity 变换)
+    // 只绘制世界∩视口的交集,1:1 对齐;越界部分留白,防止源矩形越界被拉伸变形
+    function paintViewport() {
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const cw = canvas.width, ch = canvas.height;
+        ctx.clearRect(0, 0, cw, ch);
+        const sx0 = Math.round(viewX * dpr), sy0 = Math.round(viewY * dpr);
+        const ix0 = Math.max(0, sx0), iy0 = Math.max(0, sy0);
+        const ix1 = Math.min(worldCanvas.width, sx0 + cw), iy1 = Math.min(worldCanvas.height, sy0 + ch);
+        if (ix1 > ix0 && iy1 > iy0) {
+            ctx.drawImage(worldCanvas, ix0, iy0, ix1 - ix0, iy1 - iy0, ix0 - sx0, iy0 - sy0, ix1 - ix0, iy1 - iy0);
+        }
+    }
+
+    function resizeScreen() {
+        const dpr = window.devicePixelRatio || 1;
+        const cw = document.documentElement.clientWidth;
+        const ch = document.documentElement.clientHeight;
+        canvas.width = Math.round(cw * dpr);
+        canvas.height = Math.round(ch * dpr);
+        canvas.style.width = cw + "px";
+        canvas.style.height = ch + "px";
+        // 世界至少与视口一样大:新开页面时世界 = 一屏,之后随笔迹向右/下扩展
+        growWorld(cw, ch);
+        paintViewport();
+    }
+
+    window.onresize = resizeScreen;
+
+    resizeScreen();
 
     canDraw = false;
     let baseLineList = [6, 10, 15, 25];
@@ -156,12 +199,12 @@
             setToolbarStatus(false);
             // writeHistory();
             canDraw = true;
-            ctx.globalCompositeOperation = "source-over";
-            ctx.strokeStyle = lineColorList[lineColorMode];
+            wctx.globalCompositeOperation = "source-over";
+            wctx.strokeStyle = lineColorList[lineColorMode];
             const { x, y, pressure } = getPos(e);
             priviousPressure = pressure;
-            points.push({ x, y });
-            beginPoint = { x, y };
+            points.push({ x: x + viewX, y: y + viewY, pressure });
+            beginPoint = { x: x + viewX, y: y + viewY };
         },
         "up": function (e) {
             if (!canDraw) return;
@@ -169,7 +212,7 @@
             setToolbarStatus(true);
             const { x, y, pressure } = getPos(e);
 
-            points.push({ x, y });
+            points.push({ x: x + viewX, y: y + viewY, pressure });
 
             if (points.length > 3) {
                 const lastTwoPoints = points.slice(-2);
@@ -187,7 +230,7 @@
             if (isPenOnly && e.pointerType != "pen") return;
             if (!canDraw) return;
             const { x, y, pressure } = getPos(e);
-            points.push({ x, y });
+            points.push({ x: x + viewX, y: y + viewY, pressure });
 
             if (points.length > 3) {
                 const lastTwoPoints = points.slice(-2);
@@ -207,23 +250,23 @@
             setToolbarStatus(false);
             // writeHistory();
             canDraw = true;
-            ctx.strokeStyle = "rgba(0,0,0,1)";
-            ctx.globalCompositeOperation = "destination-out";
+            wctx.strokeStyle = "rgba(0,0,0,1)";
+            wctx.globalCompositeOperation = "destination-out";
             const { x, y } = getPos(e);
             eraser.style.width = `${eraserWidth}px`;
             eraser.style.height = `${eraserWidth}px`;
             eraser.style.top = `${y - eraserWidth / 2}px`;
             eraser.style.left = `${x - eraserWidth / 2}px`;
             eraser.style.display = "block";
-            points.push({ x, y });
-            beginPoint = { x, y };
+            points.push({ x: x + viewX, y: y + viewY });
+            beginPoint = { x: x + viewX, y: y + viewY };
         },
         "up": function (e) {
             if (!canDraw) return;
             setToolbarStatus(true);
             const { x, y } = getPos(e);
 
-            points.push({ x, y });
+            points.push({ x: x + viewX, y: y + viewY });
 
             if (points.length > 3) {
                 const lastTwoPoints = points.slice(-2);
@@ -239,7 +282,7 @@
         "move": function (e) {
             if (!canDraw) return;
             const { x, y } = getPos(e);
-            points.push({ x, y });
+            points.push({ x: x + viewX, y: y + viewY });
 
             if (points.length > 3) {
                 const lastTwoPoints = points.slice(-2);
@@ -256,9 +299,34 @@
         }
     }
 
-    canvas.addEventListener("pointerdown", drawMode["down"], { passive: true })
-    canvas.addEventListener("pointerup", drawMode["up"], { passive: true })
-    canvas.addEventListener("pointermove", drawMode["move"], { passive: true })
+    // 抓手工具:拖动改变视口(viewX/viewY),内容随指针方向移动
+    const panMode = {
+        "down": function (e) {
+            setToolbarStatus(false);
+            panning = true;
+            panLast = { x: e.clientX, y: e.clientY };
+            canvas.style.cursor = "grabbing";
+        },
+        "up": function (e) {
+            if (!panning) return;
+            panning = false;
+            panLast = null;
+            setToolbarStatus(true);
+            canvas.style.cursor = "grab";
+        },
+        "move": function (e) {
+            if (!panning || !panLast) return;
+            const dx = e.clientX - panLast.x, dy = e.clientY - panLast.y;
+            panLast = { x: e.clientX, y: e.clientY };
+            if (!dx && !dy) return;
+            // 世界原点 = 初始屏幕左上角;拖到左上以外不越界(纸张从原点开始)
+            viewX = Math.max(0, viewX - dx);
+            viewY = Math.max(0, viewY - dy);
+            paintViewport();
+        }
+    }
+
+    canvas.addEventListener("pointerdown", drawMode["down"], { passive: true });
 
     function getPos(evt) {
         return {
@@ -267,22 +335,60 @@
             pressure: evt.pressure
         }
     }
+
+    // 笔迹画到世界边缘外时自动扩展世界画布(留出余量,避免频繁扩容)
+    function ensureWorldCovers(wx, wy, width) {
+        const pad = width / 2 + 8;
+        growWorld(wx + pad, wy + pad);
+    }
+
     function usePen(beginPoint, controlPoint, endPoint, width) {
-        ctx.beginPath();
-        ctx.moveTo(beginPoint.x, beginPoint.y);
-        ctx.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y);
-        ctx.lineWidth = width;
-        ctx.stroke();
-        ctx.closePath();
+        const hx = Math.max(beginPoint.x, controlPoint.x, endPoint.x);
+        const hy = Math.max(beginPoint.y, controlPoint.y, endPoint.y);
+        ensureWorldCovers(hx, hy, width);
+        wctx.beginPath();
+        wctx.moveTo(beginPoint.x, beginPoint.y);
+        wctx.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y);
+        wctx.lineWidth = width;
+        wctx.stroke();
+        wctx.closePath();
+        paintViewport();
     }
 
     function useEraser(beginPoint, controlPoint, endPoint, width) {
-        ctx.beginPath();
-        ctx.moveTo(beginPoint.x, beginPoint.y);
-        ctx.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y);
-        ctx.lineWidth = width;
-        ctx.stroke();
+        const hx = Math.max(beginPoint.x, controlPoint.x, endPoint.x);
+        const hy = Math.max(beginPoint.y, controlPoint.y, endPoint.y);
+        ensureWorldCovers(hx, hy, width);
+        wctx.beginPath();
+        wctx.moveTo(beginPoint.x, beginPoint.y);
+        wctx.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y);
+        wctx.lineWidth = width;
+        wctx.stroke();
+        paintViewport();
     }
+
+    // 工具切换:三种模式(笔/橡皮/抓手)互斥,统一摘除/挂载指针监听
+    function detachToolListeners() {
+        canvas.removeEventListener("pointerdown", drawMode["down"], { passive: true });
+        canvas.removeEventListener("pointerup", drawMode["up"], { passive: true });
+        canvas.removeEventListener("pointermove", drawMode["move"], { passive: true });
+        canvas.removeEventListener("pointerdown", eraserMode["down"], { passive: true });
+        canvas.removeEventListener("pointerup", eraserMode["up"], { passive: true });
+        canvas.removeEventListener("pointermove", eraserMode["move"], { passive: true });
+        canvas.removeEventListener("pointerdown", panMode["down"], { passive: true });
+        canvas.removeEventListener("pointerup", panMode["up"], { passive: true });
+        canvas.removeEventListener("pointermove", panMode["move"], { passive: true });
+    }
+
+    function attachToolListeners(mode) {
+        canvas.addEventListener("pointerdown", mode["down"], { passive: true });
+        canvas.addEventListener("pointerup", mode["up"], { passive: true });
+        canvas.addEventListener("pointermove", mode["move"], { passive: true });
+    }
+
+    canvas.addEventListener("pointerdown", drawMode["down"], { passive: true });
+    canvas.addEventListener("pointerup", drawMode["up"], { passive: true });
+    canvas.addEventListener("pointermove", drawMode["move"], { passive: true });
 
     toolbarEraser.innerHTML = icons.eraser();
 
@@ -321,6 +427,11 @@
         const w = canvas.width, h = canvas.height;
         let img = null;
         try { img = ctx.getImageData(0, 0, w, h); } catch (e) { }
+        // 清空整个世界(屏外笔迹一并消失),视口与 fx 层留作碎屑播报
+        wctx.setTransform(1, 0, 0, 1, 0, 0);
+        wctx.clearRect(0, 0, worldCanvas.width, worldCanvas.height);
+        wctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, w, h); // 主画布立即清空,笔迹碎屑交给 fx 层
         if (fxBurst) { cancelAnimationFrame(fxBurst.raf); fxBurst = null; }
         fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
@@ -444,15 +555,10 @@
         }
         toolbarPen.classList.add("active");
         toolbarEraser.classList.remove("active");
-        canvas.removeEventListener("pointerdown", eraserMode["down"], { passive: true })
-        canvas.removeEventListener("pointerup", eraserMode["up"], { passive: true })
-        canvas.removeEventListener("pointermove", eraserMode["move"], { passive: true })
-        canvas.removeEventListener("pointerdown", drawMode["down"], { passive: true })
-        canvas.removeEventListener("pointerup", drawMode["up"], { passive: true })
-        canvas.removeEventListener("pointermove", drawMode["move"], { passive: true })
-        canvas.addEventListener("pointerdown", drawMode["down"], { passive: true })
-        canvas.addEventListener("pointerup", drawMode["up"], { passive: true })
-        canvas.addEventListener("pointermove", drawMode["move"], { passive: true })
+        toolbarPan.classList.remove("active");
+        canvas.style.cursor = "";
+        detachToolListeners();
+        attachToolListeners(drawMode);
     }
     toolbarEraser.onpointerup = function () {
         toolbarPenMenu.classList.remove("active");
@@ -461,15 +567,20 @@
         }
         toolbarEraser.classList.add("active");
         toolbarPen.classList.remove("active");
-        canvas.removeEventListener("pointerdown", eraserMode["down"], { passive: true })
-        canvas.removeEventListener("pointerup", eraserMode["up"], { passive: true })
-        canvas.removeEventListener("pointermove", eraserMode["move"], { passive: true })
-        canvas.removeEventListener("pointerdown", drawMode["down"], { passive: true })
-        canvas.removeEventListener("pointerup", drawMode["up"], { passive: true })
-        canvas.removeEventListener("pointermove", drawMode["move"], { passive: true })
-        canvas.addEventListener("pointerdown", eraserMode["down"], { passive: true })
-        canvas.addEventListener("pointerup", eraserMode["up"], { passive: true })
-        canvas.addEventListener("pointermove", eraserMode["move"], { passive: true })
+        toolbarPan.classList.remove("active");
+        canvas.style.cursor = "";
+        detachToolListeners();
+        attachToolListeners(eraserMode);
+    }
+    toolbarPan.onpointerup = function () {
+        toolbarPenMenu.classList.remove("active");
+        toolbarEraserMenu.classList.remove("active");
+        toolbarPan.classList.add("active");
+        toolbarPen.classList.remove("active");
+        toolbarEraser.classList.remove("active");
+        canvas.style.cursor = "grab";
+        detachToolListeners();
+        attachToolListeners(panMode);
     }
 
     toolbarPenOnly.onpointerup = function () {
@@ -495,6 +606,10 @@
         if (e.keyCode == 66) { //B 笔
             e.returnvalue = false;
             toolbarPen.onpointerup();
+        }
+        if (e.keyCode == 72) { //H 拖动画布
+            e.returnvalue = false;
+            toolbarPan.onpointerup();
         }
         if (e.ctrlKey == true && e.keyCode == 90) { //Ctrl+Z 撤销
             e.returnvalue = false;
@@ -532,15 +647,45 @@
     }
 
     function exportCanvas() {
-        // 一键导出:白底合成 → 整块画布全尺寸下载(与屏幕分辨率一致,不裁剪)
-        const w = canvas.width, h = canvas.height;
+        // 一键导出:白底合成。导出范围 = 当前屏幕所见 ∪ 全部笔迹,
+        // 因此最小是一屏(所见即所得),最大是包含所有图案的大小(屏外笔迹不丢)。
+        const dpr = window.devicePixelRatio || 1;
+        const vw = canvas.width, vh = canvas.height; // 视口(device px)
+        let rx0 = Math.floor(viewX * dpr), ry0 = Math.floor(viewY * dpr);
+        let rx1 = Math.ceil((viewX * dpr) + vw), ry1 = Math.ceil((viewY * dpr) + vh);
+
+        // 扫描整个世界画布,找笔迹边界(空画布时仅导出视口)
+        const ww = worldCanvas.width, wh = worldCanvas.height;
+        let data = null;
+        try { data = wctx.getImageData(0, 0, ww, wh).data; } catch (e) { }
+        if (data) {
+            let minX = ww, minY = wh, maxX = -1, maxY = -1;
+            for (let y = 0; y < wh; y++) {
+                const row = y * ww;
+                for (let x = 0; x < ww; x++) {
+                    if (data[(row + x) * 4 + 3] > 0) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (maxX >= 0) {
+                rx0 = Math.floor(Math.min(rx0, minX));
+                ry0 = Math.floor(Math.min(ry0, minY));
+                rx1 = Math.ceil(Math.max(rx1, maxX + 1));
+                ry1 = Math.ceil(Math.max(ry1, maxY + 1));
+            }
+        }
+        const W = Math.max(1, rx1 - rx0), H = Math.max(1, ry1 - ry0);
         const out = document.createElement("canvas");
-        out.width = w;
-        out.height = h;
+        out.width = W;
+        out.height = H;
         const octx = out.getContext("2d");
         octx.fillStyle = "#fff";
-        octx.fillRect(0, 0, w, h);
-        octx.drawImage(canvas, 0, 0);
+        octx.fillRect(0, 0, W, H);
+        octx.drawImage(worldCanvas, rx0, ry0, W, H, 0, 0, W, H);
 
         const link = document.createElement("a");
         link.download = `DouBoard(${exportStamp()}).png`;
@@ -566,6 +711,34 @@
         } else {
             toolbarContainer.classList.remove("untouchable");
         }
+    }
+
+    // 本机联调用:暴露视口状态给 E2E(线上站点不暴露)
+    if (location.hostname === "127.0.0.1" || location.hostname === "localhost") {
+        window.__douboard = {
+            get view() {
+                return { x: viewX, y: viewY, worldW: worldCanvas.width, worldH: worldCanvas.height, dpr: window.devicePixelRatio || 1 };
+            },
+            worldInk: function () {
+                const w = worldCanvas.width, h = worldCanvas.height;
+                const d = wctx.getImageData(0, 0, w, h).data;
+                let n = 0, mnX = 1e9, mxX = -1, mnY = 1e9, mxY = -1;
+                for (let y = 0; y < h; y++) {
+                    const row = y * w;
+                    for (let x = 0; x < w; x++) {
+                        if (d[(row + x) * 4 + 3] > 0) {
+                            n++;
+                            if (x < mnX) mnX = x;
+                            if (x > mxX) mxX = x;
+                            if (y < mnY) mnY = y;
+                            if (y > mxY) mxY = y;
+                        }
+                    }
+                }
+                return { n, box: n ? [mnX, mnY, mxX, mxY] : null };
+            },
+            repaint: function () { paintViewport(); }
+        };
     }
 })()
 

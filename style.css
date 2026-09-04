@@ -36,7 +36,8 @@ canvas {
 
 .toolbar {
     height: 50px;
-    width: 200px;
+    width: 250px;
+    max-width: calc(100vw - 12px);
     position: fixed;
     bottom: 5px;
     left: 50%;
