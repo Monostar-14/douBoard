@@ -404,12 +404,12 @@
         confirmMask.classList.remove("show");
     }
 
-    confirmOk.onclick = function () {
+    confirmOk.onpointerup = function () {
         hideConfirm();
         toolbarEraserMenu.classList.remove("active");
         burstDissolve();
     };
-    confirmCancel.onclick = hideConfirm;
+    confirmCancel.onpointerup = hideConfirm;
     confirmMask.onpointerup = function (e) {
         if (e.target === confirmMask) hideConfirm();
     };
@@ -743,6 +743,7 @@
 })()
 
 
-document.addEventListener("touchstart", function (e) {
-    e.preventDefault();
-}, { passive: false });
+// 注:不再挂全局 touchstart preventDefault —— 它会掐断触摸/压感笔通道的原生 click
+// 与 <input type=range> 原生拖拽(数位板被识别为 touch 指针时,确认按钮点不动、
+// 粗细/橡皮滑杆拖不动)。画布防误触滚动已由 CSS canvas{touch-action:none} 承担,
+// UI 控件应保留原生触摸行为,按钮统一走 pointerup。
