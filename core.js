@@ -539,6 +539,12 @@
         exportCanvas();
     }
 
+    // 点画布(菜单以外的工具区)收起弹起的工具菜单 —— 不必再点一次按钮切换
+    canvas.addEventListener("pointerdown", function () {
+        toolbarPenMenu.classList.remove("active");
+        toolbarEraserMenu.classList.remove("active");
+    });
+
     // 橡皮大小滑杆
     eraserSizeSlider.oninput = function () {
         eraserWidth = +this.value;
