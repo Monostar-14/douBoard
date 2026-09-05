@@ -452,7 +452,7 @@
 
         // 像素过多时按步长抽稀,碎屑数封顶 ~5200,满屏也能流畅
         const step = Math.max(1, Math.ceil(count / 5200));
-        const sizes = [1.05, 1.4, 1.75, 2.3]; // 设备像素,颗粒有大有小
+        const sizes = [0.8, 1.0, 1.3, 1.6]; // CSS 像素,细屑为主(Telegram 删消息的尘粒感)
         const parts = [];
         let n = 0;
         for (let y = 0; y < h; y++) {
@@ -471,13 +471,12 @@
                 }
                 const dx = x - cxc, dy = y - cyc;
                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                const spread = 0.45 + 0.55 * Math.min(1, dist / (300 * dpr)); // 离形心越远飞得越快
-                const speed = (120 + 330 * Math.random()) * spread * dpr; // 设备 px/s
-                const ang = Math.atan2(dy, dx) + (Math.random() - 0.5) * 1.15; // 径向 + 切向抖动
+                const spread = 0.5 + 0.5 * Math.min(1, dist / (300 * dpr)); // 离形心越远横向飘得越开
                 parts.push({
                     x: x, y: y,
-                    vx: Math.cos(ang) * speed,
-                    vy: Math.sin(ang) * speed,
+                    // 主运动向上(Telegram 删消息式飘散),横向仅轻微散开
+                    vx: (Math.random() - 0.5) * 2 * (40 + 160 * Math.random()) * spread * dpr,
+                    vy: -(220 + 380 * Math.random()) * dpr, // 向上初速 220-600 CSS px/s
                     s: Math.max(1, Math.round(sizes[(Math.random() * sizes.length) | 0] * dpr)),
                     color: "rgb(" + r + "," + g + "," + b + ")",
                     delay: Math.random() * 110, // 错峰起爆,更像碎屑逐粒脱离
@@ -492,8 +491,7 @@
         fxCanvas.style.height = canvas.style.height;
 
         const dur = 1050;             // 单粒可见时长 ms
-        const damp = Math.exp(-4.2 / 60); // 速度指数衰减(60fps 基准,按实际 dt 换算)
-        const grav = 26 * dpr;        // 轻微下坠,自然飘散
+        const damp = Math.exp(-4.2 / 60); // 速度指数衰减(60fps 基准,按实际 dt 换算):上飘渐缓、悬停淡出
         fxBurst = { t0: performance.now(), last: 0, parts, raf: 0 };
         const tick = function (ts) {
             const b = fxBurst;
@@ -512,7 +510,6 @@
                 alive = true;
                 p.x += p.vx * dt;
                 p.y += p.vy * dt;
-                p.vy += grav * dt;
                 p.vx *= dampDt;
                 p.vy *= dampDt;
                 const k = t / dur;
